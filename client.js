@@ -1,110 +1,106 @@
 const socket = io();
-const configuration = { iceServers: [{ urls: 'stun:stun.l.google.com:19302' }] };
-let targetSocketId;
-let mediaRecorder;
-let recordedChunks = [];
+
+let localStream;
+let remoteStream;
+
 const localVideo = document.getElementById('localVideo');
 const remoteVideo = document.getElementById('remoteVideo');
-const peerConnection = new RTCPeerConnection(configuration);
 
-// Offer/Answer and ICE Candidate handling
-function selectTargetSocketId() {
-    targetSocketId = document.getElementById('userList').value;
-    peerConnection.createOffer()
-        .then(offer => peerConnection.setLocalDescription(offer))
-        .then(() => {
-            socket.emit('send-offer', targetSocketId, peerConnection.localDescription);
-        });
-}
+const constraints = {
+    video: true,
+    audio: true
+};
 
-socket.on('receive-offer', (offererSocketId, offer) => {
-    targetSocketId = offererSocketId;
-    const remoteOffer = new RTCSessionDescription(offer);
-    peerConnection.setRemoteDescription(remoteOffer).then(() => {
-        return peerConnection.createAnswer();
-    }).then(answer => {
-        return peerConnection.setLocalDescription(answer);
-    }).then(() => {
-        socket.emit('send-answer', targetSocketId, peerConnection.localDescription);
-    });
-});
+navigator.mediaDevices.getUserMedia(constraints)
+    .then(stream => {
+        localStream = stream;
+        localVideo.srcObject = stream;
+        socket.emit('broadcaster');
+    })
+    .catch(error => console.error(error));
 
-socket.on('receive-answer', (answer) => {
-    const remoteAnswer = new RTCSessionDescription(answer);
-    peerConnection.setRemoteDescription(remoteAnswer);
-});
+socket.on('watcher', id => {
+    const peerConnection = new RTCPeerConnection();
+    remoteStream = new MediaStream();
 
-socket.on('receive-ice-candidate', (iceCandidate) => {
-    peerConnection.addIceCandidate(new RTCIceCandidate(iceCandidate));
-});
+    localStream.getTracks().forEach(track => peerConnection.addTrack(track, localStream));
+    peerConnection.ontrack = event => {
+        event.streams[0].getTracks().forEach(track => remoteStream.addTrack(track));
+    };
 
-// WebRTC Video streams
-navigator.mediaDevices.getUserMedia({ video: true, audio: true })
-.then((stream) => {
-    localVideo.srcObject = stream;
-    stream.getTracks().forEach((track) => peerConnection.addTrack(track, stream));
-
-    // MediaRecorder initialization
-    mediaRecorder = new MediaRecorder(stream);
-
-    mediaRecorder.ondataavailable = function(event) {
-        if (event.data.size > 0) {
-            recordedChunks.push(event.data);
+    peerConnection.onicecandidate = event => {
+        if (event.candidate) {
+            socket.emit('candidate', id, event.candidate);
         }
     };
 
-    mediaRecorder.onstop = async function() {
-        const blob = new Blob(recordedChunks, {
-            type: 'video/webm'
-        });
-        await uploadVideo(blob);
+    socket.on('candidate', (id, candidate) => {
+        peerConnection.addIceCandidate(new RTCIceCandidate(candidate))
+            .catch(error => console.error(error));
+    });
+
+    peerConnection.createOffer()
+        .then(sdp => peerConnection.setLocalDescription(sdp))
+        .then(() => {
+            socket.emit('offer', id, peerConnection.localDescription);
+        })
+        .catch(error => console.error(error));
+});
+
+socket.on('answer', (id, description) => {
+    const peerConnection = new RTCPeerConnection();
+    remoteStream = new MediaStream();
+
+    localStream.getTracks().forEach(track => peerConnection.addTrack(track, localStream));
+    peerConnection.ontrack = event => {
+        event.streams[0].getTracks().forEach(track => remoteStream.addTrack(track));
     };
 
-    // Start recording
-    mediaRecorder.start();
-})
-.catch((error) => console.error(error));
+    peerConnection.onicecandidate = event => {
+        if (event.candidate) {
+            socket.emit('candidate', id, event.candidate);
+        }
+    };
 
-// Functions to stop recording and upload the video
+    peerConnection.setRemoteDescription(description)
+        .then(() => peerConnection.createAnswer())
+        .then(sdp => peerConnection.setLocalDescription(sdp))
+        .then(() => {
+            socket.emit('answer', id, peerConnection.localDescription);
+        })
+        .catch(error => console.error(error));
+});
+
+socket.on('connect', () => {
+    console.log('Connected to signaling server');
+});
+
+socket.on('broadcaster', () => {
+    socket.emit('watcher');
+});
+
+socket.on('disconnect', () => {
+    console.log('Disconnected from signaling server');
+});
+
+function selectTargetSocketId() {
+    const select = document.getElementById('userList');
+    const targetSocketId = select.options[select.selectedIndex].value;
+    socket.emit('watcher', targetSocketId);
+}
+
 function stopRecording() {
-    mediaRecorder.stop();
+    const localVideo = document.getElementById('localVideo');
+    const remoteVideo = document.getElementById('remoteVideo');
+    const stream = localVideo.srcObject;
+    const tracks = stream.getTracks();
+
+    tracks.forEach(track => track.stop());
+    localVideo.srcObject = null;
+    remoteVideo.srcObject = null;
 }
 
-async function uploadVideo(blob) {
-    const formData = new FormData();
-    formData.append('video', blob);
-
-    await fetch('/upload', {
-        method: 'POST',
-        body: formData
-    });
+function toggleMute() {
+    const localVideo = document.getElementById('localVideo');
+    localVideo.muted = !localVideo.muted;
 }
-
-// Updating the user list for WebRTC communication
-socket.on('user-connected', (data) => {
-    // Update the user list when a user connects
-    const userList = document.getElementById('userList');
-    const option = document.createElement('option');
-    option.value = data.socketId;
-    option.textContent = data.socketId;
-    userList.appendChild(option);
-});
-
-socket.on('user-disconnected', (data) => {
-    // Update the user list when a user disconnects
-    const userList = document.getElementById('userList');
-    const option = Array.from(userList.options).find(option => option.value === data.socketId);
-    if (option) {
-        userList.removeChild(option);
-    }
-});
-
-peerConnection.onicecandidate = function(event) {
-    if (event.candidate) {
-        socket.emit('send-ice-candidate', targetSocketId, event.candidate.toJSON());
-    }
-};
-
-peerConnection.ontrack = function(event) {
-    remoteVideo.srcObject = event.streams[0];
-};

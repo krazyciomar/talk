@@ -10,7 +10,14 @@
     <button onclick="stopRecording()">Stop Recording and Upload</button>
     <video id="localVideo" autoplay muted></video>
     <video id="remoteVideo" autoplay></video>
+    <button onclick="toggleMute()">Mute/Unmute</button>
     <script src="/socket.io/socket.io.js"></script>
     <script src="client.js"></script>
+    <script>
+        function toggleMute() {
+            const localVideo = document.getElementById('localVideo');
+            localVideo.muted = !localVideo.muted;
+        }
+    </script>
 </body>
 </html>
