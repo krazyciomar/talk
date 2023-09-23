@@ -44,19 +44,8 @@ navigator.mediaDevices.getUserMedia({ video: true, audio: true })
     localVideo.srcObject = stream;
     stream.getTracks().forEach((track) => peerConnection.addTrack(track, stream));
 
-    // Check if H.264 codec is supported and initialize MediaRecorder
-    let fileExtension;
-    let mimeType;
-    if (MediaRecorder.isTypeSupported('video/webm; codecs="H264"')) {
-        mimeType = 'video/mp4';
-        fileExtension = '.mp4';
-        mediaRecorder = new MediaRecorder(stream, { mimeType: 'video/webm; codecs="H264"' });
-    } else {
-        console.warn('H264 codec is not supported, falling back to default codec');
-        mimeType = 'video/webm';
-        fileExtension = '.webm';
-        mediaRecorder = new MediaRecorder(stream);
-    }
+    // MediaRecorder initialization
+    mediaRecorder = new MediaRecorder(stream);
 
     mediaRecorder.ondataavailable = function(event) {
         if (event.data.size > 0) {
@@ -66,9 +55,9 @@ navigator.mediaDevices.getUserMedia({ video: true, audio: true })
 
     mediaRecorder.onstop = async function() {
         const blob = new Blob(recordedChunks, {
-            type: mimeType
+            type: 'video/webm'
         });
-        await uploadVideo(blob, fileExtension);
+        await uploadVideo(blob);
     };
 
     // Start recording
@@ -81,9 +70,9 @@ function stopRecording() {
     mediaRecorder.stop();
 }
 
-async function uploadVideo(blob, extension) {
+async function uploadVideo(blob) {
     const formData = new FormData();
-    formData.append('video', blob, `recorded${extension}`);
+    formData.append('video', blob);
 
     await fetch('/upload', {
         method: 'POST',
@@ -119,8 +108,3 @@ peerConnection.onicecandidate = function(event) {
 peerConnection.ontrack = function(event) {
     remoteVideo.srcObject = event.streams[0];
 };
-
-    peerConnection.ontrack = function(event) {
-        remoteVideo.srcObject = event.streams[0];
-    };
-}
