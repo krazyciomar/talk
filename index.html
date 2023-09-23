@@ -1,0 +1,20 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>WebRTC Example</title>
+</head>
+<body>
+
+<video id="localVideo" autoplay playsinline muted></video>
+<video id="remoteVideo" autoplay playsinline></video>
+<select id="userList"></select>
+<button onclick="selectTargetSocketId()">Call</button>
+<button id="hangupButton" onclick="hangup()">Hangup</button>
+<button id="muteButton" onclick="toggleMute()">Mute</button>
+
+<script src="/socket.io/socket.io.js"></script>
+<script src="client.js"></script>
+</body>
+</html>
